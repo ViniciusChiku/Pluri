@@ -13,7 +13,7 @@ export default function ArticleSelectionPanel({
   selectedCategory,
   setSelectedCategory,
   filteredNews,
-  liveNewsLoading,
+  newsLoading,
   selectedArticle,
   setSelectedArticle,
   handleOpenArticleInstant,
@@ -146,7 +146,7 @@ export default function ArticleSelectionPanel({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '0.5rem' }}>
                 {filteredNews.length === 0 ? (
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '1rem', textAlign: 'center' }}>
-                    {liveNewsLoading ? 'Carregando notícias ao vivo...' : `Nenhum artigo disponível em ${selectedCategory} para ${activeLanguage}.`}
+                    {newsLoading ? 'Carregando notícias...' : `Nenhum artigo disponível em ${selectedCategory} para ${activeLanguage}.`}
                   </p>
                 ) : (
                   filteredNews.map(art => {

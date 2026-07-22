@@ -460,7 +460,14 @@ export const getDailyNews = async (language) => {
     )
 
     if (!error && data) {
-      return data
+      // The `daily_news` table columns are snake_case; the article shape the
+      // UI expects everywhere else (and camelCase) comes from newsDatabase.js.
+      return data.map(row => ({
+        ...row,
+        estimatedLevel: row.estimated_level,
+        difficultyScore: row.difficulty_score,
+        imageUrl: row.image_url
+      }))
     }
   } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
   return []

@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio'
 import dotenv from 'dotenv'
 import { createClient } from '@supabase/supabase-js'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { safeJsonParse } from '../src/services/safeJsonParse.js'
 
 import fs from 'fs'
 
@@ -60,20 +61,25 @@ async function processNews() {
         continue
       }
       
-      // 2. Extrai o texto completo acessando o link real da BBC
+      // 2. Extrai o texto completo (e a imagem de capa) acessando o link real da BBC
       let fullText = item.contentSnippet || item.content || ''
-      
+      let imageUrl = null
+
       try {
         const res = await fetch(item.link)
         const html = await res.text()
         const $ = cheerio.load(html)
         const paragraphs = []
-        
+
         // A maioria dos artigos da BBC usam as tags <p> dentro do article ou story-body
         $('[data-component="text-block"], article p, .story-body p, .article__body-content p').each((i, el) => paragraphs.push($(el).text().trim()))
         if (paragraphs.length > 2) {
           fullText = paragraphs.filter(p => p.length > 20).join('\n\n')
         }
+
+        imageUrl = $('meta[property="og:image"]').attr('content')
+          || $('meta[name="twitter:image"]').attr('content')
+          || null
       } catch (e) {
         console.warn("  Aviso: Não foi possível baixar a página inteira, usando snippet.")
       }
@@ -86,7 +92,7 @@ async function processNews() {
       // 3. Pede para a IA criar a Lição Estruturada
       console.log("  [GEMINI] Traduzindo e avaliando nível da notícia...")
       try {
-        const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemma-4-31b-it' })
+        const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash' })
         
         const prompt = `Você é um tutor de inglês experiente criando material didático para seus alunos. 
 Analise a seguinte notícia em inglês extraída de um portal.
@@ -112,9 +118,7 @@ Responda APENAS com um objeto JSON puro, sem usar markdown (sem as crases de \`\
         const result = await model.generateContent(prompt)
         const textResponse = result.response.text()
         
-        // Limpeza de segurança para Parse
-        const jsonStr = textResponse.replace(/```json/g, '').replace(/```/g, '').trim()
-        const lesson = JSON.parse(jsonStr)
+        const lesson = safeJsonParse(textResponse)
         
         // 4. Salva no Supabase
         const { error: dbError } = await supabase
@@ -128,7 +132,8 @@ Responda APENAS com um objeto JSON puro, sem usar markdown (sem as crases de \`\
             translation: lesson.translation,
             estimated_level: lesson.estimatedLevel,
             difficulty_score: lesson.difficultyScore,
-            source_url: item.link
+            source_url: item.link,
+            image_url: imageUrl
           })
           
         if (dbError) {

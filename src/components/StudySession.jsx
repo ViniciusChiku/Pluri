@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Sparkles, GraduationCap, Check } from 'lucide-react'
 import { processCustomText, evaluateWriting, processCustomMultimodalInput } from '../services/gemini'
-import { fetchLiveNews, fetchFullArticleText, extractOgImage } from '../services/liveNews'
+import { fetchFullArticleText, extractOgImage } from '../services/liveNews'
 import { newsDatabase } from '../data/newsDatabase'
 import { saveFlashcard, saveStudySession, getLanguages, getDailyNews } from '../services/supabase'
 import { fetchViaProxy } from '../services/edgeFunctions'
@@ -114,55 +114,34 @@ export default function StudySession({ profileId, presetLanguage, presetCompeten
     loadLangs()
   }, [profileId, presetLanguage, presetCompetence])
 
-  const [liveNewsLoading, setLiveNewsLoading] = useState(false)
+  const [newsLoading, setNewsLoading] = useState(false)
 
-  // Fetch daily news from Supabase & Live BBC RSS Feeds
+  // Fetch daily news: Supabase's `daily_news` table (populated once a day by
+  // the fetch-daily-news GitHub Action, see scripts/fetchDailyNews.js) is the
+  // single source of truth. The static newsDatabase seed only kicks in as a
+  // fallback when that table has nothing for the target language yet — e.g.
+  // a fresh project setup before the first scheduled run.
   useEffect(() => {
     async function loadNews() {
       const targetLang = activeLanguage || 'Inglês'
-      
-      // 1. Instantly populate local database articles (0ms delay)
-      const localBase = newsDatabase.filter(n => n.language === targetLang)
-      setDbNews(localBase)
 
-      // 2. Try fetching from Supabase (with 1.2s timeout protection)
+      setNewsLoading(true)
       try {
         const news = await getDailyNews(targetLang)
         if (news && news.length > 0) {
-          setDbNews(prev => {
-            const combined = [...news, ...prev]
-            const uniqueMap = new Map()
-            combined.forEach(item => uniqueMap.set(item.title, item))
-            return Array.from(uniqueMap.values())
-          })
+          setDbNews(news)
+        } else {
+          setDbNews(newsDatabase.filter(n => n.language === targetLang))
         }
       } catch (e) {
-        // Supabase fetch failed/timed out — keep showing the local seed data set above.
         console.warn('Supabase daily news fetch failed, using local seed data:', e)
-      }
-
-      // 3. Fetch live BBC RSS news if English
-      if (targetLang === 'Inglês') {
-        setLiveNewsLoading(true)
-        try {
-          const liveItems = await fetchLiveNews(targetLang, selectedCategory)
-          if (liveItems && liveItems.length > 0) {
-            setDbNews(prev => {
-              const combined = [...liveItems, ...prev]
-              const uniqueMap = new Map()
-              combined.forEach(item => uniqueMap.set(item.title, item))
-              return Array.from(uniqueMap.values())
-            })
-          }
-        } catch (err) {
-          console.warn('Live RSS notice:', err)
-        } finally {
-          setLiveNewsLoading(false)
-        }
+        setDbNews(newsDatabase.filter(n => n.language === targetLang))
+      } finally {
+        setNewsLoading(false)
       }
     }
     loadNews()
-  }, [activeLanguage, selectedCategory])
+  }, [activeLanguage])
 
   // Filter the loaded news by selected category
   const filteredNews = dbNews.filter(
@@ -713,7 +692,7 @@ export default function StudySession({ profileId, presetLanguage, presetCompeten
           selectedCategory={selectedCategory}
           setSelectedCategory={setSelectedCategory}
           filteredNews={filteredNews}
-          liveNewsLoading={liveNewsLoading}
+          newsLoading={newsLoading}
           selectedArticle={selectedArticle}
           setSelectedArticle={setSelectedArticle}
           handleOpenArticleInstant={handleOpenArticleInstant}

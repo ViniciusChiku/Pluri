@@ -1,28 +1,8 @@
-// Service to fetch live news from BBC RSS feeds across different categories
+// Service to fetch full article text (and cover image) for a user-selected
+// or user-imported article. Live RSS browsing was removed in favor of a
+// single source of truth: the `daily_news` Supabase table, populated once a
+// day by scripts/fetchDailyNews.js via a scheduled GitHub Action.
 import { fetchViaProxy } from './edgeFunctions.js'
-
-const CATEGORY_FEEDS = {
-  'Mundo': 'https://feeds.bbci.co.uk/news/world/rss.xml',
-  'Tecnologia': 'https://feeds.bbci.co.uk/news/technology/rss.xml',
-  'Negócios': 'https://feeds.bbci.co.uk/news/business/rss.xml',
-  'Ciência': 'https://feeds.bbci.co.uk/news/science_and_environment/rss.xml',
-  'Cultura': 'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml',
-  'Esportes': 'https://feeds.bbci.co.uk/sport/rss.xml'
-}
-
-/**
- * Clean HTML tags and snippet artifacts from RSS text
- */
-const cleanSnippetText = (text) => {
-  if (!text) return ''
-  return text
-    .replace(/<[^>]*>/g, '')
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .trim()
-}
 
 /**
  * Pull a cover image URL out of a page's <head> meta tags (og:image /
@@ -48,57 +28,6 @@ export const extractOgImage = (html) => {
     console.warn('Could not extract og:image:', err)
   }
   return null
-}
-
-/**
- * Fetch live articles for a given language and category
- */
-export const fetchLiveNews = async (language = 'Inglês', category = 'Tecnologia') => {
-  if (language !== 'Inglês') {
-    return []
-  }
-
-  const feedUrl = CATEGORY_FEEDS[category] || CATEGORY_FEEDS['Tecnologia']
-
-  // Fetched server-side via our own fetch-proxy Edge Function (no CORS
-  // restriction to work around there), instead of a free third-party
-  // RSS-to-JSON/CORS-proxy service.
-  try {
-    const { text: xmlText } = await fetchViaProxy(feedUrl)
-
-    const parser = new DOMParser()
-    const xmlDoc = parser.parseFromString(xmlText, 'text/xml')
-    const items = Array.from(xmlDoc.querySelectorAll('item')).slice(0, 10)
-
-    return items.map((item, idx) => {
-      const title = item.querySelector('title')?.textContent || 'Breaking News'
-      const description = cleanSnippetText(item.querySelector('description')?.textContent || '')
-      const link = item.querySelector('link')?.textContent || feedUrl
-      // BBC feeds carry the cover photo as <media:thumbnail url="..."/> or a
-      // plain <enclosure url="..."/>; the colon in the tag name means
-      // querySelector can't be used directly, so we go through getElementsByTagName.
-      const imageUrl = item.getElementsByTagName('media:thumbnail')[0]?.getAttribute('url')
-        || item.querySelector('enclosure')?.getAttribute('url')
-        || null
-
-      return {
-        id: `live_${category.toLowerCase()}_${idx}_${Date.now()}`,
-        language: 'Inglês',
-        category,
-        title,
-        summary: description.substring(0, 180) + '...',
-        text: `${title}.\n\n${description}`,
-        imageUrl,
-        estimatedLevel: 'B2',
-        difficultyScore: 65,
-        source_url: link,
-        isLive: true
-      }
-    })
-  } catch (err) {
-    console.error('Failed to fetch live RSS news:', err)
-    return []
-  }
 }
 
 /**
