@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env.local
+.env
+supabase/.temp/
+.firebase/
+*.log
