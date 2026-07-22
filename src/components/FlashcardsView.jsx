@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { Plus, Trash, Check, Sparkles, Layers, BookOpen, AlertCircle, Volume2 } from 'lucide-react'
 import { getFlashcards, saveFlashcard, deleteFlashcard, getLanguages } from '../services/supabase'
 import { speak } from '../services/tts'
-import { calculateNextReview, nextReviewDateString } from '../services/spacedRepetition'
+import { calculateNextReview, nextReviewDateString, previewIntervals } from '../services/spacedRepetition'
+import LoadingSpinner from './LoadingSpinner'
 
 export default function FlashcardsView({ profileId, setCurrentView }) {
   const [dueCards, setDueCards] = useState([])
@@ -10,6 +11,7 @@ export default function FlashcardsView({ profileId, setCurrentView }) {
   const [activeCardIndex, setActiveCardIndex] = useState(0)
   const [isFlipped, setIsFlipped] = useState(false)
   const [showAddCard, setShowAddCard] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   // Add Card State
   const [newFront, setNewFront] = useState('')
@@ -33,9 +35,14 @@ export default function FlashcardsView({ profileId, setCurrentView }) {
       if (langs.length > 0) {
         setNewLanguage(langs[0].name)
       }
+      setIsLoading(false)
     }
     loadFlashcardsData()
   }, [profileId])
+
+  if (isLoading) {
+    return <LoadingSpinner />
+  }
 
   const handleCreateCard = async (e) => {
     e.preventDefault()
@@ -110,6 +117,7 @@ export default function FlashcardsView({ profileId, setCurrentView }) {
   }
 
   const activeCard = dueCards[activeCardIndex]
+  const intervalPreview = activeCard ? previewIntervals(activeCard) : { 1: 1, 2: 1, 3: 1 }
 
   const speakText = (text, language) => speak(text, language)
 
@@ -216,7 +224,7 @@ export default function FlashcardsView({ profileId, setCurrentView }) {
                 onClick={(e) => { e.stopPropagation(); handleReviewFeedback(1); }}
               >
                 <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Difícil</span>
-                <span style={{ fontSize: '0.65rem' }}>1-2d</span>
+                <span style={{ fontSize: '0.65rem' }}>{intervalPreview[1]}d</span>
               </button>
 
               <button 
@@ -225,7 +233,7 @@ export default function FlashcardsView({ profileId, setCurrentView }) {
                 onClick={(e) => { e.stopPropagation(); handleReviewFeedback(2); }}
               >
                 <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Bom</span>
-                <span style={{ fontSize: '0.65rem' }}>4-6d</span>
+                <span style={{ fontSize: '0.65rem' }}>{intervalPreview[2]}d</span>
               </button>
 
               <button 
@@ -234,7 +242,7 @@ export default function FlashcardsView({ profileId, setCurrentView }) {
                 onClick={(e) => { e.stopPropagation(); handleReviewFeedback(3); }}
               >
                 <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Fácil</span>
-                <span style={{ fontSize: '0.65rem' }}>10-15d</span>
+                <span style={{ fontSize: '0.65rem' }}>{intervalPreview[3]}d</span>
               </button>
             </div>
           ) : (

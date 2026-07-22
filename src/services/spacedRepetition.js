@@ -38,6 +38,16 @@ function applyReview(easeFactor, repetitions, previousInterval, qualityScore) {
   }
 }
 
+// Actual interval each answer button would produce for this card right now,
+// so the UI can show real numbers instead of guessed/hardcoded ranges.
+export function previewIntervals(card) {
+  return {
+    1: calculateNextReview({ ...card, qualityScore: 1 }).interval_days,
+    2: calculateNextReview({ ...card, qualityScore: 2 }).interval_days,
+    3: calculateNextReview({ ...card, qualityScore: 3 }).interval_days
+  }
+}
+
 export function nextReviewDateString(intervalDays, fromDate = new Date()) {
   const nextReviewDate = new Date(fromDate)
   nextReviewDate.setDate(nextReviewDate.getDate() + intervalDays)

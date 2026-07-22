@@ -1,6 +1,7 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react'
 import Sidebar from './components/Sidebar'
 import Auth from './components/Auth'
+import SyncWarningBanner from './components/SyncWarningBanner'
 import { Sun, Moon, LogOut } from 'lucide-react'
 import { getCurrentUser, signOutUser } from './services/supabase'
 
@@ -165,6 +166,7 @@ export default function App() {
 
   return (
     <div className="app-container">
+      <SyncWarningBanner />
       <Sidebar
         currentView={currentView}
         setCurrentView={setCurrentView}

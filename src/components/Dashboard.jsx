@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from 'react'
 import { Plus, Flame, CheckCircle, GraduationCap, ArrowRight, BookOpen } from 'lucide-react'
 import { getLanguages, saveLanguage, getStudySessions, getFlashcards, getCurrentUser } from '../services/supabase'
+import { getWeeklyStudyMinutes, calculateStreak, getDailyProgressByLanguage } from '../services/studyMetrics'
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts'
+import LoadingSpinner from './LoadingSpinner'
 
 export default function Dashboard({ profileId, setCurrentView, triggerRefresh }) {
   const [languages, setLanguages] = useState([])
   const [showAddLanguage, setShowAddLanguage] = useState(false)
   const [userName, setUserName] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
   
   // Stats
   const [weeklyTarget, setWeeklyTarget] = useState(0)
   const [weeklyDone, setWeeklyDone] = useState(0)
-  const [streak, setStreak] = useState(3)
+  const [streak, setStreak] = useState(0)
   const [reviewCount, setReviewCount] = useState(0)
+  const [dailyProgress, setDailyProgress] = useState([])
   
   // Add Language Form State
   const [newLangName, setNewLangName] = useState('Inglês')
@@ -44,8 +48,8 @@ export default function Dashboard({ profileId, setCurrentView, triggerRefresh })
 
       // Load sessions and calculate completed minutes for the current week
       const sessions = await getStudySessions(profileId)
-      const done = sessions.reduce((acc, curr) => acc + (curr.duration_minutes || 0), 0)
-      setWeeklyDone(done)
+      setWeeklyDone(getWeeklyStudyMinutes(sessions))
+      setDailyProgress(getDailyProgressByLanguage(langs, sessions))
 
       // Load flashcards count due for review
       const cards = await getFlashcards(profileId)
@@ -68,43 +72,15 @@ export default function Dashboard({ profileId, setCurrentView, triggerRefresh })
         localStorage.setItem(savedSkillsKey, JSON.stringify(defaultSkills))
       }
 
-      const getStreak = (sessionsList) => {
-        if (!sessionsList || sessionsList.length === 0) return 0;
-        const dates = [...new Set(sessionsList.map(s => s.date_studied))].sort().reverse();
-        
-        const todayObj = new Date();
-        const offset = todayObj.getTimezoneOffset() * 60000;
-        const localISOTime = (new Date(todayObj.getTime() - offset)).toISOString().split('T')[0];
-        const yesterdayObj = new Date(todayObj.getTime() - 86400000);
-        const yesterdayISO = (new Date(yesterdayObj.getTime() - offset)).toISOString().split('T')[0];
-
-        let startIdx = dates.indexOf(localISOTime);
-        if (startIdx === -1) {
-            startIdx = dates.indexOf(yesterdayISO);
-        }
-        if (startIdx === -1) return 0;
-
-        let currentStreak = 1;
-        let currentDateObj = new Date(dates[startIdx]);
-        // Set to local midnight to avoid timezone shifting issues when doing setDate
-        currentDateObj = new Date(currentDateObj.getTime() + currentDateObj.getTimezoneOffset() * 60000);
-        
-        for (let i = startIdx + 1; i < dates.length; i++) {
-            currentDateObj.setDate(currentDateObj.getDate() - 1);
-            const expectedDateStr = (new Date(currentDateObj.getTime() - currentDateObj.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-            
-            if (dates[i] === expectedDateStr) {
-                currentStreak++;
-            } else {
-                break;
-            }
-        }
-        return currentStreak;
-      }
-      setStreak(getStreak(sessions))
+      setStreak(calculateStreak(sessions))
+      setIsLoading(false)
     }
     loadDashboardData()
   }, [profileId, triggerRefresh])
+
+  if (isLoading) {
+    return <LoadingSpinner />
+  }
 
   const handleAddLanguageSubmit = async (e) => {
     e.preventDefault()
@@ -190,21 +166,40 @@ export default function Dashboard({ profileId, setCurrentView, triggerRefresh })
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {languages.map(lang => (
-                <div key={lang.id} className="card glass" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem' }}>
-                  <div>
-                    <span className="badge badge-primary" style={{ marginBottom: '0.5rem' }}>{lang.current_level}</span>
-                    <h4 style={{ fontSize: '1.2rem', fontWeight: 700 }}>{lang.name}</h4>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                      Foco: {lang.primary_goal} • Meta: {Math.round(lang.target_weekly_minutes / 60)}h por semana
-                    </p>
+              {languages.map(lang => {
+                const progress = dailyProgress.find(p => p.name === lang.name)
+                return (
+                  <div key={lang.id} className="card glass" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <span className="badge badge-primary" style={{ marginBottom: '0.5rem' }}>{lang.current_level}</span>
+                      <h4 style={{ fontSize: '1.2rem', fontWeight: 700 }}>{lang.name}</h4>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
+                        Foco: {lang.primary_goal} • Meta: {Math.round(lang.target_weekly_minutes / 60)}h por semana
+                      </p>
+                      {progress && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', maxWidth: '220px' }}>
+                          <div style={{ flex: 1, height: '6px', borderRadius: '3px', background: 'var(--bg-tertiary)', overflow: 'hidden' }}>
+                            <div style={{
+                              height: '100%',
+                              borderRadius: '3px',
+                              width: `${Math.min(100, Math.round((progress.doneMinutes / progress.goalMinutes) * 100))}%`,
+                              background: progress.isMet ? 'var(--success)' : 'var(--primary)'
+                            }} />
+                          </div>
+                          <span style={{ fontSize: '0.7rem', color: progress.isMet ? 'var(--success)' : 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            {progress.isMet && <CheckCircle size={12} />}
+                            {progress.doneMinutes}/{progress.goalMinutes}min hoje
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <button className="btn btn-secondary" onClick={() => setCurrentView('study-session')}>
+                      Estudar
+                      <ArrowRight size={14} />
+                    </button>
                   </div>
-                  <button className="btn btn-secondary" onClick={() => setCurrentView('study-session')}>
-                    Estudar
-                    <ArrowRight size={14} />
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

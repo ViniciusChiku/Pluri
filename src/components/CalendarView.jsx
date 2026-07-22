@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { Check, Plus, AlertCircle, PlayCircle } from 'lucide-react'
 import { getLanguages, getStudySessions, saveStudySession } from '../services/supabase'
+import { toLocalDateString, hasAnySessionOnDates } from '../services/studyMetrics'
+import LoadingSpinner from './LoadingSpinner'
 
 export default function CalendarView({ profileId, setCurrentView, setSessionLanguage, setSessionCompetence, setSessionId }) {
   const [languages, setLanguages] = useState([])
   const [sessions, setSessions] = useState([])
   const [weekDays, setWeekDays] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
 
   // Setup current week dates
   useEffect(() => {
@@ -22,7 +25,7 @@ export default function CalendarView({ profileId, setCurrentView, setSessionLang
       date.setDate(startOfWeek.getDate() + i)
       days.push({
         name: dayNames[i],
-        dateStr: date.toISOString().split('T')[0],
+        dateStr: toLocalDateString(date),
         dayNum: date.getDate(),
         isToday: date.toDateString() === today.toDateString()
       })
@@ -36,9 +39,14 @@ export default function CalendarView({ profileId, setCurrentView, setSessionLang
       setLanguages(langs)
       const sess = await getStudySessions(profileId)
       setSessions(sess)
+      setIsLoading(false)
     }
     loadCalendarData()
   }, [profileId])
+
+  if (isLoading) {
+    return <LoadingSpinner />
+  }
 
   const toggleSessionCompletion = async (session) => {
     const updated = {
@@ -121,7 +129,7 @@ export default function CalendarView({ profileId, setCurrentView, setSessionLang
             Seu plano de ação semanal inteligente. Estude e marque como concluído.
           </p>
         </div>
-        {sessions.length === 0 && languages.length > 0 && (
+        {!hasAnySessionOnDates(sessions, weekDays.map(d => d.dateStr)) && languages.length > 0 && (
           <button className="btn btn-primary" onClick={generateWeekPlan}>
             <Plus size={16} />
             Gerar Cronograma Semanal

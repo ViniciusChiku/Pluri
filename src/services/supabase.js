@@ -146,11 +146,28 @@ export const signOutUser = async () => {
   localStorage.removeItem('planner_local_session')
 }
 
-const withTimeout = (promise, ms = 1200) => {
+const withTimeout = (promise, ms = 5000) => {
   return Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error('Supabase request timeout')), ms))
   ])
+}
+
+// Notifies the UI when a read/write silently fell back to local/mock data
+// (Supabase error or timeout) so screens can warn the user instead of
+// rendering incomplete data as if it were the source of truth.
+const SYNC_FALLBACK_EVENT = 'supabase-sync-fallback'
+
+export const emitSyncFallback = (context, error) => {
+  console.warn('Supabase/local fallback error:', error?.message || error)
+  window.dispatchEvent(new CustomEvent(SYNC_FALLBACK_EVENT, {
+    detail: { context, message: error?.message || String(error) }
+  }))
+}
+
+export const subscribeToSyncFallback = (callback) => {
+  window.addEventListener(SYNC_FALLBACK_EVENT, callback)
+  return () => window.removeEventListener(SYNC_FALLBACK_EVENT, callback)
 }
 
 export const getCurrentUser = async () => {
@@ -165,7 +182,7 @@ export const getCurrentUser = async () => {
           avatar: (user.user_metadata?.display_name || user.email).substring(0, 2).toUpperCase()
         }
       }
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('getCurrentUser', e) }
   }
   // Local fallback
   const sessionRaw = localStorage.getItem('planner_local_session')
@@ -198,7 +215,7 @@ export const getLanguages = async (profileId) => {
         list = data
         usedSupabase = true
       }
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('getLanguages', e) }
   }
   if (!usedSupabase || list.length === 0) {
     const all = mockDb.get('languages', [
@@ -225,9 +242,11 @@ export const getLanguages = async (profileId) => {
 export const saveLanguage = async (languageData, profileId) => {
   const activeProfile = profileId || getActiveProfileId()
   const allExisting = mockDb.get('languages', [])
-  const existing = allExisting.find(l => 
-    (languageData.id && l.id === languageData.id) || 
-    (l.name && l.name.toLowerCase() === (languageData.name || '').toLowerCase())
+  const existing = allExisting.find(l =>
+    l.profile_id === activeProfile && (
+      (languageData.id && l.id === languageData.id) ||
+      (l.name && l.name.toLowerCase() === (languageData.name || '').toLowerCase())
+    )
   )
 
   const payload = {
@@ -245,11 +264,14 @@ export const saveLanguage = async (languageData, profileId) => {
         .upsert(payload)
         .select()
       if (!error && data && data.length > 0) return data[0]
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('saveLanguage', e) }
   }
 
-  // Fallback in mockDb: remove duplicates for same language name
-  const filtered = allExisting.filter(l => l.id !== payload.id && l.name?.toLowerCase() !== payload.name?.toLowerCase())
+  // Fallback in mockDb: remove duplicates for same language name, scoped to
+  // this profile only — other profiles' rows must never be touched here.
+  const filtered = allExisting.filter(l =>
+    l.profile_id !== activeProfile || (l.id !== payload.id && l.name?.toLowerCase() !== payload.name?.toLowerCase())
+  )
   filtered.push(payload)
   mockDb.set('languages', filtered)
   return payload
@@ -267,7 +289,7 @@ export const getStudySessions = async (profileId) => {
           .eq('profile_id', activeProfile)
       )
       if (!error && data) return data
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('getStudySessions', e) }
   }
   // Fallback to local storage if offline or error
   const all = mockDb.get('study_sessions', [])
@@ -276,11 +298,23 @@ export const getStudySessions = async (profileId) => {
 
 export const saveStudySession = async (sessionData, profileId) => {
   const activeProfile = profileId || getActiveProfileId()
+
+  // When completing/updating an existing session without an explicit
+  // date_studied (e.g. logging results after finishing a lesson), keep the
+  // date it was originally scheduled for instead of silently moving it to
+  // today.
+  let dateStudied = sessionData.date_studied
+  if (!dateStudied && sessionData.id) {
+    const existing = await getStudySessions(activeProfile)
+    const match = existing.find(s => s.id === sessionData.id)
+    if (match) dateStudied = match.date_studied
+  }
+
   const payload = {
     ...sessionData,
     profile_id: activeProfile,
     id: sessionData.id || Math.random().toString(36).substring(2, 9),
-    date_studied: sessionData.date_studied || new Date().toISOString().split('T')[0]
+    date_studied: dateStudied || new Date().toISOString().split('T')[0]
   }
 
   if (isSupabaseEnabled()) {
@@ -290,7 +324,7 @@ export const saveStudySession = async (sessionData, profileId) => {
         .upsert(payload)
         .select()
       if (!error && data && data.length > 0) return data[0]
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('saveStudySession', e) }
   }
 
   // Fallback
@@ -317,7 +351,7 @@ export const getFlashcards = async (profileId) => {
           .eq('profile_id', activeProfile)
       )
       if (!error && data) return data
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('getFlashcards', e) }
   }
   // Fallback
   const all = mockDb.get('flashcards', [
@@ -346,7 +380,7 @@ export const saveFlashcard = async (cardData, profileId) => {
         .upsert(payload)
         .select()
       if (!error && data && data.length > 0) return data[0]
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('saveFlashcard', e) }
   }
 
   // Fallback
@@ -388,7 +422,7 @@ export const getNotes = async (profileId) => {
         .select('*')
         .eq('profile_id', activeProfile)
       if (!error && data) return data
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('getNotes', e) }
   }
   // Fallback
   const all = mockDb.get('notes', [
@@ -413,7 +447,7 @@ export const saveNote = async (noteData, profileId) => {
         .upsert(payload)
         .select()
       if (!error && data && data.length > 0) return data[0]
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('saveNote', e) }
   }
 
   // Fallback
@@ -436,7 +470,7 @@ export const deleteNote = async (noteId) => {
         .delete()
         .eq('id', noteId)
       if (!error) return true
-    } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+    } catch (e) { emitSyncFallback('deleteNote', e) }
   }
   const all = mockDb.get('notes', [])
   mockDb.set('notes', all.filter(n => n.id !== noteId))
@@ -469,6 +503,6 @@ export const getDailyNews = async (language) => {
         imageUrl: row.image_url
       }))
     }
-  } catch (e) { console.warn('Supabase/local fallback error:', e?.message || e) }
+  } catch (e) { emitSyncFallback('getDailyNews', e) }
   return []
 }

@@ -6,6 +6,7 @@ import { newsDatabase } from '../data/newsDatabase'
 import { saveFlashcard, saveStudySession, getLanguages, getDailyNews } from '../services/supabase'
 import { fetchViaProxy } from '../services/edgeFunctions'
 import { speak, cancelSpeech } from '../services/tts'
+import { calculateSimilarity } from '../services/textSimilarity'
 import MatchGame from './study/MatchGame'
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition'
 import VocabularyPanel from './study/VocabularyPanel'
@@ -192,21 +193,6 @@ export default function StudySession({ profileId, presetLanguage, presetCompeten
         speakSentence(lesson.text, activeLanguage)
       }
     }
-  }
-
-  // Similarity calculator for dictation and speaking evaluation
-  const calculateSimilarity = (str1, str2) => {
-    const clean = (str) => str.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim()
-    const s1 = clean(str1).split(' ')
-    const s2 = clean(str2).split(' ')
-    
-    let matches = 0;
-    s1.forEach(word => {
-      if (s2.includes(word)) {
-        matches++;
-      }
-    })
-    return Math.round((matches / Math.max(1, s2.length)) * 100)
   }
 
   const handleFileChange = (e) => {

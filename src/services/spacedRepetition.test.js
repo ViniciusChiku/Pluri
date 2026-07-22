@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calculateNextReview, nextReviewDateString } from './spacedRepetition'
+import { calculateNextReview, nextReviewDateString, previewIntervals } from './spacedRepetition'
 
 describe('calculateNextReview', () => {
   it('resets repetitions and interval to 1 day when the answer is wrong (quality 0)', () => {
@@ -40,6 +40,22 @@ describe('calculateNextReview', () => {
   it('defaults ease_factor, repetitions and interval for a brand new card', () => {
     const result = calculateNextReview({ qualityScore: 2 })
     expect(result).toEqual({ ease_factor: 2.5, repetitions: 1, interval_days: 1 })
+  })
+})
+
+describe('previewIntervals', () => {
+  it('returns the actual interval each button will produce for a brand new card', () => {
+    const result = previewIntervals({ ease_factor: 2.5, repetitions: 0, interval_days: 1 })
+    // On the first-ever review, SM-2 fixes the interval to 1 day regardless
+    // of how easy it felt (that only shows up starting the next review).
+    expect(result).toEqual({ 1: 1, 2: 1, 3: 1 })
+  })
+
+  it('matches whatever calculateNextReview actually produces for a mature card', () => {
+    const card = { ease_factor: 2.5, repetitions: 3, interval_days: 10 }
+    const result = previewIntervals(card)
+    expect(result[2]).toBe(calculateNextReview({ ...card, qualityScore: 2 }).interval_days)
+    expect(result[3]).toBe(calculateNextReview({ ...card, qualityScore: 3 }).interval_days)
   })
 })
 
